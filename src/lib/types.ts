@@ -12,6 +12,7 @@ export const subjectSchema = z.object({
     .max(10, "Credits cannot exceed 10."),
 });
 
+// This schema is no longer used for the main form, but kept for reference or future use.
 export const calculateCgpaSchema = z.object({
   subjects: z.array(subjectSchema).min(1, "Please add at least one subject."),
 });

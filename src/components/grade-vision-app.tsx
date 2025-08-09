@@ -1,17 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { z } from "zod";
 import {
   AlertTriangle,
   Book,
-  Calculator,
   ClipboardList,
   Plus,
   Trash2,
   Pencil,
+  RotateCcw,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -69,11 +69,8 @@ import {
 import {
   type CalculationResult,
   type SubjectResult,
-  calculateCgpaSchema,
   subjectSchema,
 } from "@/lib/types";
-
-const formSchema = calculateCgpaSchema;
 
 const GRADES = [
   { name: "O", marks: 90, point: 10 },
@@ -87,10 +84,8 @@ const GRADES = [
 ];
 
 type AssessmentState = {
-  subjects: z.infer<typeof subjectSchema>[];
-  subjectIndex: number;
+  subject: z.infer<typeof subjectSchema>;
   gradeIndex: number;
-  results: SubjectResult[];
 };
 
 type EditState = {
@@ -99,36 +94,24 @@ type EditState = {
 };
 
 export function GradeVisionApp() {
-  const [isPending, startTransition] = React.useTransition();
-  const [finalResult, setFinalResult] = React.useState<CalculationResult | null>(
-    null
-  );
-  const [assessmentState, setAssessmentState] =
-    React.useState<AssessmentState | null>(null);
+  const [finalResult, setFinalResult] = React.useState<CalculationResult>({ results: [], cgpa: 0 });
+  const [assessmentState, setAssessmentState] = React.useState<AssessmentState | null>(null);
   const [editState, setEditState] = React.useState<EditState | null>(null);
 
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
+  const form = useForm<z.infer<typeof subjectSchema>>({
+    resolver: zodResolver(subjectSchema),
     defaultValues: {
-      subjects: [{ name: "Subject 1", cie: "" as any, credits: "" as any }],
+      name: "",
+      cie: "" as any,
+      credits: "" as any,
     },
     mode: "onChange",
   });
 
-  const { fields, append, remove } = useFieldArray({
-    control: form.control,
-    name: "subjects",
-  });
-
-  const onSubmit = (data: z.infer<typeof formSchema>) => {
-    setFinalResult(null);
-    startTransition(() => {
-      setAssessmentState({
-        subjects: data.subjects,
-        subjectIndex: 0,
-        gradeIndex: 0,
-        results: [],
-      });
+  const onSubmit = (data: z.infer<typeof subjectSchema>) => {
+    setAssessmentState({
+      subject: data,
+      gradeIndex: 0,
     });
   };
 
@@ -148,19 +131,22 @@ export function GradeVisionApp() {
       results: results,
       cgpa: parseFloat(cgpa.toFixed(2)),
     });
-    setAssessmentState(null);
+  };
+
+  const addResultAndRecalculate = (newResult: SubjectResult) => {
+    const newResults = [...finalResult.results, newResult];
+    calculateFinalCgpa(newResults);
   };
 
   const handleConfidence = (isConfident: boolean) => {
     if (!assessmentState) return;
 
-    let { subjects, subjectIndex, gradeIndex, results } = { ...assessmentState };
-    const subject = subjects[subjectIndex];
-    const grade = GRADES[gradeIndex];
+    let { subject, gradeIndex } = { ...assessmentState };
 
     if (isConfident) {
+      const grade = GRADES[gradeIndex];
       const requiredSeeMarks = 2 * (grade.marks - subject.cie);
-      results.push({
+      addResultAndRecalculate({
         subjectName: subject.name,
         grade: grade.name,
         gradePoint: grade.point,
@@ -168,19 +154,16 @@ export function GradeVisionApp() {
         credits: subject.credits,
         cie: subject.cie,
       });
-      subjectIndex++;
-      gradeIndex = 0;
+      setAssessmentState(null); // Assessment for this subject is done
+      form.reset({ name: "", cie: "" as any, credits: "" as any }); // Reset form for next subject
+      return;
     } else {
       gradeIndex++;
     }
 
-    if (subjectIndex >= subjects.length) {
-      calculateFinalCgpa(results);
-      return;
-    }
-
     if (gradeIndex >= GRADES.length) {
-      results.push({
+      // Failed to find a confident grade
+      addResultAndRecalculate({
         subjectName: subject.name,
         grade: "F",
         gradePoint: 0,
@@ -190,24 +173,19 @@ export function GradeVisionApp() {
         warning:
           "Lacks confidence for any passing grade. This subject is at risk.",
       });
-      subjectIndex++;
-      gradeIndex = 0;
-    }
-
-    if (subjectIndex >= subjects.length) {
-      calculateFinalCgpa(results);
+      setAssessmentState(null);
+      form.reset({ name: "", cie: "" as any, credits: "" as any });
     } else {
-      setAssessmentState({ subjects, subjectIndex, gradeIndex, results });
+      setAssessmentState({ subject, gradeIndex });
     }
   };
 
   React.useEffect(() => {
     if (!assessmentState) return;
 
-    const { subjects, subjectIndex, gradeIndex } = assessmentState;
-    if (subjectIndex >= subjects.length || gradeIndex >= GRADES.length) return;
+    const { subject, gradeIndex } = assessmentState;
+    if (gradeIndex >= GRADES.length) return;
 
-    const subject = subjects[subjectIndex];
     const grade = GRADES[gradeIndex];
     const requiredSeeMarks = 2 * (grade.marks - subject.cie);
 
@@ -217,16 +195,10 @@ export function GradeVisionApp() {
     }
   }, [assessmentState]);
 
-  const addSubject = () => {
-    append({
-      name: `Subject ${fields.length + 1}`,
-      cie: "" as any,
-      credits: "" as any,
-    });
-  };
-
   const removeSubject = (index: number) => {
-    remove(index);
+    const newResults = [...finalResult.results];
+    newResults.splice(index, 1);
+    calculateFinalCgpa(newResults);
   };
 
   const handleEditGrade = () => {
@@ -240,11 +212,9 @@ export function GradeVisionApp() {
       subjectToUpdate.grade = newGradeInfo.name;
       subjectToUpdate.gradePoint = newGradeInfo.point;
 
-      // Recalculate SEE marks based on the new grade
       const newRequiredSeeMarks = 2 * (newGradeInfo.marks - subjectToUpdate.cie);
       subjectToUpdate.requiredSeeMarks = Math.round(newRequiredSeeMarks);
-
-      // Clear warning if a passing grade is now selected
+      
       if (newGradeInfo.point > 0) {
         delete subjectToUpdate.warning;
       } else {
@@ -252,21 +222,21 @@ export function GradeVisionApp() {
       }
     }
     
-    // Recalculate CGPA with updated results
     calculateFinalCgpa(newResults);
     setEditState(null);
   };
 
+  const startOver = () => {
+    setFinalResult({ results: [], cgpa: 0 });
+    setAssessmentState(null);
+    setEditState(null);
+    form.reset({ name: "", cie: "" as any, credits: "" as any });
+  }
+
   const renderAssessmentDialog = () => {
     if (!assessmentState) return null;
 
-    const { subjects, subjectIndex, gradeIndex } = assessmentState;
-
-    if (subjectIndex >= subjects.length) {
-      return null;
-    }
-
-    const subject = subjects[subjectIndex];
+    const { subject, gradeIndex } = assessmentState;
     const grade = GRADES[gradeIndex];
     const requiredSeeMarks = 2 * (grade.marks - subject.cie);
 
@@ -311,9 +281,7 @@ export function GradeVisionApp() {
 
   const renderEditGradeDialog = () => {
     if (!editState || !finalResult) return null;
-
     const subject = finalResult.results[editState.subjectIndex];
-
     return (
       <Dialog open={!!editState} onOpenChange={() => setEditState(null)}>
         <DialogContent>
@@ -353,116 +321,91 @@ export function GradeVisionApp() {
     );
   };
 
-  const hasAtRiskSubjects =
-    finalResult?.results.some((r) => !!r.warning) ?? false;
+  const hasAtRiskSubjects = finalResult.results.some((r) => !!r.warning);
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
-      {!finalResult && !assessmentState && (
-        <Card>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Book className="text-primary" />
-                  Your Subjects
-                </CardTitle>
-                <CardDescription>
-                  Enter your CIE marks (out of 50) and subject credits.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {fields.map((field, index) => (
-                  <div
-                    key={field.id}
-                    className="grid grid-cols-1 md:grid-cols-8 gap-4 items-start p-4 border rounded-lg bg-card"
-                  >
-                    <FormField
-                      control={form.control}
-                      name={`subjects.${index}.name`}
-                      render={({ field }) => (
-                        <FormItem className="md:col-span-3">
-                          <FormLabel>Subject Name</FormLabel>
-                          <FormControl>
-                            <Input placeholder="e.g., Mathematics" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`subjects.${index}.cie`}
-                      render={({ field }) => (
-                        <FormItem className="md:col-span-2">
-                          <FormLabel>CIE Marks</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              placeholder="e.g., 42"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`subjects.${index}.credits`}
-                      render={({ field }) => (
-                        <FormItem className="md:col-span-2">
-                          <FormLabel>Credits</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              step="0.5"
-                              placeholder="e.g., 4"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <div className="flex items-end h-full">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeSubject(index)}
-                        disabled={fields.length <= 1}
-                        className="text-destructive hover:bg-destructive/10"
-                        aria-label="Remove Subject"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-              <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-4">
-                <Button type="button" variant="outline" onClick={addSubject}>
-                  <Plus className="mr-2 h-4 w-4" /> Add Subject
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={isPending || !form.formState.isValid}
-                >
-                  <Calculator className="mr-2 h-4 w-4" />
-                  Estimate CGPA
-                </Button>
-              </CardFooter>
-            </form>
-          </Form>
-        </Card>
-      )}
+      <Card>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Book className="text-primary" />
+                Add a Subject
+              </CardTitle>
+              <CardDescription>
+                Enter subject details, then click 'Add & Assess' to check your confidence.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-7 gap-4 items-start">
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-3">
+                        <FormLabel>Subject Name</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g., Mathematics" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="cie"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>CIE Marks</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="e.g., 42"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="credits"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>Credits</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.5"
+                            placeholder="e.g., 4"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-end">
+              <Button
+                type="submit"
+                disabled={!!assessmentState || !form.formState.isValid}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add & Assess Subject
+              </Button>
+            </CardFooter>
+          </form>
+        </Form>
+      </Card>
 
       {renderAssessmentDialog()}
       {renderEditGradeDialog()}
 
-
-      {(isPending || assessmentState) && !finalResult && (
+      {assessmentState && (
         <div className="flex flex-col items-center justify-center text-center p-8 bg-card rounded-lg shadow-md">
           <Spinner className="h-8 w-8 text-primary mb-4" />
           <p className="text-lg font-semibold">Assessing your confidence...</p>
@@ -472,15 +415,21 @@ export function GradeVisionApp() {
         </div>
       )}
 
-      {finalResult && (
+      {finalResult.results.length > 0 && (
         <Card className="shadow-lg animate-in fade-in-50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ClipboardList className="text-primary" />
-              ✅ Estimated CGPA
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ClipboardList className="text-primary" />
+                Estimated CGPA & Results
+              </div>
+               <Button variant="outline" size="sm" onClick={startOver}>
+                  <RotateCcw className="mr-2"/>
+                  Start Over
+                </Button>
             </CardTitle>
             <CardDescription>
-              Based on your input and confidence. Click a grade to edit.
+              Based on your input and confidence. Click a grade point to edit.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -517,6 +466,7 @@ export function GradeVisionApp() {
                         SEE Marks Req.
                       </TableHead>
                       <TableHead className="text-center">Grade Point</TableHead>
+                      <TableHead className="text-center">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -548,21 +498,23 @@ export function GradeVisionApp() {
                             <Pencil className="h-3 w-3 opacity-50" />
                           </div>
                         </TableCell>
+                         <TableCell className="text-center">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeSubject(i)}
+                                className="text-destructive hover:bg-destructive/10"
+                                aria-label="Remove Subject"
+                            >
+                                <Trash2 className="h-5 w-5" />
+                            </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </div>
-            </div>
-            <div className="flex justify-center">
-              <Button
-                onClick={() => {
-                  setFinalResult(null);
-                  form.reset();
-                }}
-              >
-                Start Over
-              </Button>
             </div>
           </CardContent>
         </Card>
