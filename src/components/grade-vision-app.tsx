@@ -239,8 +239,11 @@ export function GradeVisionApp() {
     if (subjectToUpdate && newGradeInfo) {
       subjectToUpdate.grade = newGradeInfo.name;
       subjectToUpdate.gradePoint = newGradeInfo.point;
-      // Since this is a manual override, SEE marks might not be relevant
-      subjectToUpdate.requiredSeeMarks = -1; 
+
+      // Recalculate SEE marks based on the new grade
+      const newRequiredSeeMarks = 2 * (newGradeInfo.marks - subjectToUpdate.cie);
+      subjectToUpdate.requiredSeeMarks = Math.round(newRequiredSeeMarks);
+
       // Clear warning if a passing grade is now selected
       if (newGradeInfo.point > 0) {
         delete subjectToUpdate.warning;
@@ -530,7 +533,7 @@ export function GradeVisionApp() {
                           {r.grade}
                         </TableCell>
                         <TableCell className="text-center">
-                          {r.requiredSeeMarks >= 0
+                          {r.requiredSeeMarks >= 0 && r.requiredSeeMarks <= 100
                             ? r.requiredSeeMarks
                             : "N/A"}
                         </TableCell>
