@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Pencil,
   RotateCcw,
+  Calculator,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   type CalculationResult,
   type SubjectResult,
@@ -67,6 +70,9 @@ export function ResultsDisplay() {
   const router = useRouter();
   const [finalResult, setFinalResult] = React.useState<CalculationResult | null>(null);
   const [editState, setEditState] = React.useState<EditState | null>(null);
+  const [previousCgpa, setPreviousCgpa] = React.useState<string>("");
+  const [overallCgpa, setOverallCgpa] = React.useState<number | null>(null);
+
 
   React.useEffect(() => {
     const data = searchParams.get('data');
@@ -84,6 +90,20 @@ export function ResultsDisplay() {
         router.push('/');
     }
   }, [searchParams, router]);
+
+  React.useEffect(() => {
+    if (finalResult && previousCgpa) {
+      const prevCgpaNum = parseFloat(previousCgpa);
+      if (!isNaN(prevCgpaNum) && prevCgpaNum >= 0 && prevCgpaNum <= 10) {
+        const newCgpa = (prevCgpaNum + finalResult.sgpa) / 2;
+        setOverallCgpa(parseFloat(newCgpa.toFixed(2)));
+      } else {
+        setOverallCgpa(null);
+      }
+    } else {
+      setOverallCgpa(null);
+    }
+  }, [previousCgpa, finalResult]);
 
 
   const calculateFinalSgpa = (results: SubjectResult[]) => {
@@ -206,13 +226,42 @@ export function ResultsDisplay() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="text-center bg-muted p-6 rounded-lg">
-              <p className="text-sm font-medium text-muted-foreground">
-                ESTIMATED SGPA
-              </p>
-              <p className="text-6xl font-bold text-primary">
-                {finalResult.sgpa.toFixed(2)}
-              </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="text-center bg-muted p-6 rounded-lg">
+                    <p className="text-sm font-medium text-muted-foreground">
+                        ESTIMATED SGPA
+                    </p>
+                    <p className="text-6xl font-bold text-primary">
+                        {finalResult.sgpa.toFixed(2)}
+                    </p>
+                </div>
+                <div className="text-center bg-muted p-6 rounded-lg flex flex-col justify-center">
+                    <p className="text-sm font-medium text-muted-foreground">
+                        OVERALL CGPA
+                    </p>
+                    {overallCgpa !== null ? (
+                        <p className="text-6xl font-bold text-primary">
+                            {overallCgpa.toFixed(2)}
+                        </p>
+                    ) : (
+                       <p className="text-3xl text-muted-foreground/60 flex-grow flex items-center justify-center">Enter previous CGPA</p>
+                    )}
+                </div>
+            </div>
+
+             <div className="space-y-2">
+                <Label htmlFor="previous-cgpa">Previous CGPA (Optional)</Label>
+                <Input 
+                    id="previous-cgpa"
+                    type="number"
+                    step="0.01"
+                    placeholder="Enter your previous CGPA (e.g., 8.5)"
+                    value={previousCgpa}
+                    onChange={(e) => setPreviousCgpa(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                    Enter your CGPA from previous semesters to calculate your new overall CGPA.
+                </p>
             </div>
 
             {hasAtRiskSubjects && (
