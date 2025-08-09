@@ -115,7 +115,7 @@ export function GradeVisionApp() {
     });
   };
 
-  const calculateFinalCgpa = (results: SubjectResult[]) => {
+  const calculateFinalSgpa = (results: SubjectResult[]) => {
     const confidentSubjects = results.filter((r) => !r.warning);
     const totalGradePoints = confidentSubjects.reduce(
       (sum, s) => sum + s.gradePoint * s.credits,
@@ -125,17 +125,17 @@ export function GradeVisionApp() {
       (sum, s) => sum + s.credits,
       0
     );
-    const cgpa = totalCredits > 0 ? totalGradePoints / totalCredits : 0;
+    const sgpa = totalCredits > 0 ? totalGradePoints / totalCredits : 0;
 
     setFinalResult({
       results: results,
-      cgpa: parseFloat(cgpa.toFixed(2)),
+      cgpa: parseFloat(sgpa.toFixed(2)),
     });
   };
 
   const addResultAndRecalculate = (newResult: SubjectResult) => {
     const newResults = [...finalResult.results, newResult];
-    calculateFinalCgpa(newResults);
+    calculateFinalSgpa(newResults);
   };
 
   const handleConfidence = (isConfident: boolean) => {
@@ -198,7 +198,7 @@ export function GradeVisionApp() {
   const removeSubject = (index: number) => {
     const newResults = [...finalResult.results];
     newResults.splice(index, 1);
-    calculateFinalCgpa(newResults);
+    calculateFinalSgpa(newResults);
   };
 
   const handleEditGrade = () => {
@@ -222,7 +222,7 @@ export function GradeVisionApp() {
       }
     }
     
-    calculateFinalCgpa(newResults);
+    calculateFinalSgpa(newResults);
     setEditState(null);
   };
 
@@ -288,7 +288,7 @@ export function GradeVisionApp() {
           <DialogHeader>
             <DialogTitle>Edit Grade for {subject.subjectName}</DialogTitle>
             <DialogDescription>
-              Select a new grade. The CGPA will be recalculated.
+              Select a new grade. The SGPA will be recalculated.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
@@ -421,7 +421,7 @@ export function GradeVisionApp() {
             <CardTitle className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ClipboardList className="text-primary" />
-                Estimated CGPA & Results
+                Estimated SGPA & Results
               </div>
                <Button variant="outline" size="sm" onClick={startOver}>
                   <RotateCcw className="mr-2"/>
@@ -435,7 +435,7 @@ export function GradeVisionApp() {
           <CardContent className="space-y-6">
             <div className="text-center bg-muted p-6 rounded-lg">
               <p className="text-sm font-medium text-muted-foreground">
-                ESTIMATED CGPA
+                ESTIMATED SGPA
               </p>
               <p className="text-6xl font-bold text-primary">
                 {finalResult.cgpa.toFixed(2)}
@@ -448,7 +448,7 @@ export function GradeVisionApp() {
                 <AlertTitle>📉 Subjects at Risk</AlertTitle>
                 <AlertDescription>
                   One or more subjects were marked as 'at risk' or failed. They have
-                  been excluded from the CGPA calculation if their grade point is 0.
+                  been excluded from the SGPA calculation if their grade point is 0.
                 </AlertDescription>
               </Alert>
             )}

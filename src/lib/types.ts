@@ -13,7 +13,7 @@ export const subjectSchema = z.object({
 });
 
 // This schema is no longer used for the main form, but kept for reference or future use.
-export const calculateCgpaSchema = z.object({
+export const calculateSgpaSchema = z.object({
   subjects: z.array(subjectSchema).min(1, "Please add at least one subject."),
 });
 
@@ -29,5 +29,5 @@ export type SubjectResult = {
 
 export type CalculationResult = {
   results: SubjectResult[];
-  cgpa: number;
+  cgpa: number; // Internally this is the SGPA
 };

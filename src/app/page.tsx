@@ -12,7 +12,7 @@ export default function Home() {
           GradeVision
         </h1>
         <p className="text-muted-foreground mt-2 text-lg">
-          Estimate your CGPA with confidence.
+          Estimate your SGPA with confidence.
         </p>
       </header>
       <GradeVisionApp />

@@ -3,8 +3,8 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 
 export const metadata: Metadata = {
-  title: 'GradeVision: CGPA Estimator',
-  description: 'A CGPA Estimator tool for students to realistically assess their academic standing.',
+  title: 'GradeVision: SGPA Estimator',
+  description: 'An SGPA Estimator tool for students to realistically assess their academic standing.',
 };
 
 export default function RootLayout({
