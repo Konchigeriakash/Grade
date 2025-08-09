@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm, useFieldArray, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import type { z } from "zod";
@@ -22,14 +22,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Form,
@@ -66,7 +58,7 @@ const GRADES = [
 ];
 
 type AssessmentState = {
-  subjectIndex: number;
+  subject: Subject;
   gradeIndex: number;
 };
 
@@ -74,6 +66,7 @@ export function GradeVisionApp() {
   const router = useRouter();
   const [assessmentState, setAssessmentState] = React.useState<AssessmentState | null>(null);
   const [isCalculating, setIsCalculating] = React.useState(false);
+  const [results, setResults] = React.useState<SubjectResult[]>([]);
 
   const form = useForm<z.infer<typeof calculateSgpaSchema>>({
     resolver: zodResolver(calculateSgpaSchema),
@@ -83,20 +76,13 @@ export function GradeVisionApp() {
     mode: "onChange",
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, update } = useFieldArray({
     control: form.control,
     name: "subjects",
   });
 
-  const onSubmit = () => {
-    // Start the assessment process from the first subject
-    setAssessmentState({
-      subjectIndex: 0,
-      gradeIndex: 0,
-    });
-  };
-
-  const processResults = (results: SubjectResult[]) => {
+  const onSubmit = (data: z.infer<typeof calculateSgpaSchema>) => {
+    // Navigate to results page with all results
     const totalGradePoints = results.reduce(
       (sum, s) => sum + s.gradePoint * s.credits,
       0
@@ -111,112 +97,112 @@ export function GradeVisionApp() {
       results: results,
       sgpa: parseFloat(sgpa.toFixed(2)),
     };
-    
-    // Navigate to results page
+
     const resultsQuery = encodeURIComponent(JSON.stringify(finalResult));
     router.push(`/results?data=${resultsQuery}`);
   };
 
-  const handleConfidence = (isConfident: boolean, currentResults: SubjectResult[]) => {
+  const handleConfidence = (isConfident: boolean) => {
     if (!assessmentState) return;
-
-    let { subjectIndex, gradeIndex } = { ...assessmentState };
-    const subjects = form.getValues('subjects');
-    const subject = subjects[subjectIndex];
-    let newResults = [...currentResults];
-
+  
+    let { subject, gradeIndex } = { ...assessmentState };
+    let newResult: SubjectResult | null = null;
+  
     if (isConfident) {
       const grade = GRADES[gradeIndex];
       const requiredSeeMarks = 2 * (grade.marks - subject.cie);
-      newResults.push({
+      newResult = {
         subjectName: subject.name,
         grade: grade.name,
         gradePoint: grade.point,
         requiredSeeMarks: Math.round(requiredSeeMarks),
         credits: subject.credits,
         cie: subject.cie,
-      });
-      subjectIndex++; // Move to next subject
-      gradeIndex = 0; // Reset grade check for next subject
+      };
+      
+      // Find the subject in the form array and mark it as processed
+      const subjectIndex = fields.findIndex(f => f.name === subject.name && f.cie === subject.cie && f.credits === subject.credits);
+      if(subjectIndex !== -1) {
+        // Here you might want to store the result with the subject or handle it differently
+        // For now, let's just remove it from the form array so it's not processed again
+        remove(subjectIndex);
+        append({ name: "", cie: "" as any, credits: "" as any });
+      }
+
     } else {
       gradeIndex++; // Try next lower grade for same subject
     }
-
-    if (subjectIndex >= subjects.length) {
-      // All subjects processed
-      setIsCalculating(false);
-      processResults(newResults);
-      return;
-    }
-
-    if (gradeIndex >= GRADES.length) {
-      // Failed to find a confident grade for the current subject
-      newResults.push({
+  
+    if (newResult) {
+      setResults(prev => [...prev, newResult!]);
+      setAssessmentState(null);
+    } else if (gradeIndex >= GRADES.length) {
+      // Failed to find a confident grade
+      newResult = {
         subjectName: subject.name,
         grade: "F",
         gradePoint: 0,
         requiredSeeMarks: -1,
         credits: subject.credits,
         cie: subject.cie,
-        warning:
-          "Lacks confidence for any passing grade. This subject is at risk.",
-      });
-      subjectIndex++; // Move to next subject
-      gradeIndex = 0; // Reset for next subject
-    }
+        warning: "Lacks confidence for any passing grade. This subject is at risk.",
+      };
+      setResults(prev => [...prev, newResult!]);
+      
+      const subjectIndex = fields.findIndex(f => f.name === subject.name && f.cie === subject.cie && f.credits === subject.credits);
+      if(subjectIndex !== -1) {
+        remove(subjectIndex);
+        append({ name: "", cie: "" as any, credits: "" as any });
+      }
 
-    if (subjectIndex < subjects.length) {
-        setAssessmentState({ subjectIndex, gradeIndex });
+      setAssessmentState(null);
     } else {
-        // Finished last subject
-        setIsCalculating(false);
-        processResults(newResults);
+      // Continue with the next grade
+      setAssessmentState({ subject, gradeIndex });
+    }
+  };
+  
+  const triggerConfidenceCheck = (subjectIndex: number) => {
+    const subjectData = form.getValues().subjects[subjectIndex];
+    const validationResult = calculateSgpaSchema.shape.subjects.element.safeParse(subjectData);
+
+    if (validationResult.success) {
+      setAssessmentState({
+        subject: validationResult.data,
+        gradeIndex: 0,
+      });
+    } else {
+      // Trigger validation to show errors
+      form.trigger(`subjects.${subjectIndex}`);
     }
   };
 
   React.useEffect(() => {
-    if (assessmentState === null) return;
+    if (!assessmentState) return;
 
-    const { subjectIndex, gradeIndex } = assessmentState;
-    const subjects = form.getValues('subjects');
-
-    if (subjectIndex >= subjects.length || gradeIndex >= GRADES.length) {
-      // Should be handled by handleConfidence, but as a safeguard:
-      if (isCalculating) {
-         // If we are in an assessment loop, finalize it.
-         const finalResults = fields.map((field, index) => {
-            const result = (form.control as any)._subjects[index]?.result;
-            return result || {
-              subjectName: field.name,
-              grade: 'F', gradePoint: 0, requiredSeeMarks: -1, credits: field.credits, cie: field.cie,
-              warning: 'Calculation incomplete.'
-            };
-         });
-         processResults(finalResults);
-      }
-      return;
+    const { subject, gradeIndex } = assessmentState;
+    if (gradeIndex >= GRADES.length) {
+        handleConfidence(false);
+        return;
     }
 
-    const subject = subjects[subjectIndex];
     const grade = GRADES[gradeIndex];
     const requiredSeeMarks = 2 * (grade.marks - subject.cie);
 
     if (requiredSeeMarks > 100 || requiredSeeMarks < 0) {
       // Automatically advance if grade is impossible
-      handleConfidence(false, (form.control as any)._subjects.map((s: any) => s.result).filter(Boolean));
+      handleConfidence(false);
     }
-  }, [assessmentState, form.getValues, isCalculating]);
+  }, [assessmentState]);
 
 
   const renderAssessmentDialog = () => {
     if (assessmentState === null) return null;
     
-    const subjects = form.getValues('subjects');
-    const { subjectIndex, gradeIndex } = assessmentState;
+    const { subject, gradeIndex } = assessmentState;
 
-    if (subjectIndex >= subjects.length || gradeIndex >= GRADES.length) return null;
+    if (gradeIndex >= GRADES.length) return null;
 
-    const subject = subjects[subjectIndex];
     const grade = GRADES[gradeIndex];
     const requiredSeeMarks = 2 * (grade.marks - subject.cie);
 
@@ -226,13 +212,8 @@ export function GradeVisionApp() {
     
     const isFiftyMarkPaper = subject.credits === 1 || subject.credits === 2;
 
-    const currentResults = fields.map((field, index) => {
-        return (form.control as any)._subjects[index]?.result;
-    }).filter(Boolean);
-
-
     return (
-      <AlertDialog open={true}>
+      <AlertDialog open={true} onOpenChange={() => assessmentState && !isCalculating ? setAssessmentState(null) : null}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -254,138 +235,150 @@ export function GradeVisionApp() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <Button variant="outline" onClick={() => handleConfidence(false, currentResults)}>
+            <Button variant="outline" onClick={() => handleConfidence(false)}>
               Not Confident
             </Button>
-            <Button onClick={() => handleConfidence(true, currentResults)}>Confident</Button>
+            <Button onClick={() => handleConfidence(true)}>Confident</Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     );
   };
   
-  const startAssessment = (data: z.infer<typeof calculateSgpaSchema>) => {
-    setIsCalculating(true);
-    // Initialize results for each subject as null
-    (form.control as any)._subjects = data.subjects.map(s => ({...s, result: null}));
-    setAssessmentState({ subjectIndex: 0, gradeIndex: 0 });
-  };
-
-
   return (
     <div className="max-w-4xl mx-auto space-y-8">
        <Form {...form}>
-          <form onSubmit={form.handleSubmit(startAssessment)}>
-      <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Book className="text-primary" />
-                Enter Subjects
-              </CardTitle>
-              <CardDescription>
-                Add all your subjects and their CIE marks below.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-                <div className="space-y-6">
-                {fields.map((field, index) => (
-                    <div key={field.id} className="grid grid-cols-1 md:grid-cols-8 gap-4 items-start p-4 border rounded-lg relative">
-                        <FormField
-                        control={form.control}
-                        name={`subjects.${index}.name`}
-                        render={({ field }) => (
-                            <FormItem className="md:col-span-3">
-                            <FormLabel>Subject Name</FormLabel>
-                            <FormControl>
-                                <Input placeholder="e.g., Mathematics" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                            </FormItem>
-                        )}
-                        />
-                        <FormField
-                        control={form.control}
-                        name={`subjects.${index}.cie`}
-                        render={({ field }) => (
-                            <FormItem className="md:col-span-2">
-                            <FormLabel>CIE Marks</FormLabel>
-                            <FormControl>
-                                <Input
-                                type="number"
-                                placeholder="e.g., 42"
-                                {...field}
-                                />
-                            </FormControl>
-                            <FormMessage />
-                            </FormItem>
-                        )}
-                        />
-                        <FormField
-                        control={form.control}
-                        name={`subjects.${index}.credits`}
-                        render={({ field }) => (
-                            <FormItem className="md:col-span-2">
-                            <FormLabel>Credits</FormLabel>
-                            <FormControl>
-                                <Input
-                                type="number"
-                                step="0.5"
-                                placeholder="e.g., 4"
-                                {...field}
-                                />
-                            </FormControl>
-                            <FormMessage />
-                            </FormItem>
-                        )}
-                        />
-                         <div className="md:col-span-1 flex items-end justify-end h-full">
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => remove(index)}
-                                className="text-destructive hover:bg-destructive/10"
-                                aria-label="Remove Subject"
-                                disabled={fields.length <= 1}
-                            >
-                                <Trash2 className="h-5 w-5" />
-                            </Button>
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Book className="text-primary" />
+                    Enter Subjects
+                  </CardTitle>
+                  <CardDescription>
+                    Add all your subjects and their CIE marks below. After adding a subject, a confidence check will run.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="space-y-6">
+                    {fields.map((field, index) => (
+                        <div key={field.id} className="grid grid-cols-1 md:grid-cols-9 gap-4 items-start p-4 border rounded-lg relative">
+                            <FormField
+                            control={form.control}
+                            name={`subjects.${index}.name`}
+                            render={({ field }) => (
+                                <FormItem className="md:col-span-3">
+                                <FormLabel>Subject Name</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="e.g., Mathematics" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                                </FormItem>
+                            )}
+                            />
+                            <FormField
+                            control={form.control}
+                            name={`subjects.${index}.cie`}
+                            render={({ field }) => (
+                                <FormItem className="md:col-span-2">
+                                <FormLabel>CIE Marks</FormLabel>
+                                <FormControl>
+                                    <Input
+                                    type="number"
+                                    placeholder="e.g., 42"
+                                    {...field}
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                                </FormItem>
+                            )}
+                            />
+                            <FormField
+                            control={form.control}
+                            name={`subjects.${index}.credits`}
+                            render={({ field }) => (
+                                <FormItem className="md:col-span-2">
+                                <FormLabel>Credits</FormLabel>
+                                <FormControl>
+                                    <Input
+                                    type="number"
+                                    step="0.5"
+                                    placeholder="e.g., 4"
+                                    {...field}
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                                </FormItem>
+                            )}
+                            />
+                            <div className="md:col-span-2 flex items-end justify-end h-full space-x-2">
+                                <Button
+                                    type="button"
+                                    onClick={() => triggerConfidenceCheck(index)}
+                                    className="w-full"
+                                >
+                                    <Plus className="mr-2" />
+                                    Add 
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => remove(index)}
+                                    className="text-destructive hover:bg-destructive/10"
+                                    aria-label="Remove Subject"
+                                    disabled={fields.length <= 1}
+                                >
+                                    <Trash2 className="h-5 w-5" />
+                                </Button>
+                            </div>
                         </div>
+                    ))}
                     </div>
-                ))}
+                </CardContent>
+            </Card>
+
+            {renderAssessmentDialog()}
+
+            {assessmentState !== null && (
+                <div className="flex flex-col items-center justify-center text-center p-8 bg-card rounded-lg shadow-md">
+                <Spinner className="h-8 w-8 text-primary mb-4" />
+                <p className="text-lg font-semibold">Assessing your confidence...</p>
+                <p className="text-muted-foreground">
+                    Please answer the pop-up questions.
+                </p>
                 </div>
-                 <div className="mt-4">
-                    <Button type="button" variant="outline" size="sm" onClick={() => append({ name: "", cie: "" as any, credits: "" as any })}>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Add Another Subject
-                    </Button>
-                </div>
-            </CardContent>
-      </Card>
+            )}
 
-      {renderAssessmentDialog()}
+            {results.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Current Results</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <ul>
+                            {results.map((r, i) => (
+                                <li key={i} className="flex justify-between items-center p-2 border-b">
+                                    <span>{r.subjectName}</span>
+                                    <span>Grade: {r.grade} (GP: {r.gradePoint})</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </CardContent>
+                </Card>
+            )}
 
-      {(assessmentState !== null || isCalculating) && (
-        <div className="flex flex-col items-center justify-center text-center p-8 bg-card rounded-lg shadow-md">
-          <Spinner className="h-8 w-8 text-primary mb-4" />
-          <p className="text-lg font-semibold">Assessing your confidence...</p>
-          <p className="text-muted-foreground">
-            Please answer the pop-up questions.
-          </p>
-        </div>
-      )}
-
-      <div className="flex justify-end pt-4">
-          <Button
-            type="submit"
-            size="lg"
-            disabled={assessmentState !== null || !form.formState.isValid}
-          >
-            <Calculator className="mr-2 h-5 w-5" />
-            Calculate SGPA
-          </Button>
-      </div>
-      </form>
+            <div className="flex justify-end pt-4">
+                <Button
+                    type="submit"
+                    size="lg"
+                    disabled={assessmentState !== null || results.length === 0}
+                >
+                    <Calculator className="mr-2 h-5 w-5" />
+                    Calculate Final SGPA
+                </Button>
+            </div>
+          </form>
     </Form>
     </div>
   );
