@@ -253,7 +253,8 @@ export function ResultsDisplay() {
                 <Label htmlFor="previous-cgpa">Previous CGPA (Optional)</Label>
                 <Input 
                     id="previous-cgpa"
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     step="0.01"
                     placeholder="Enter your previous CGPA (e.g., 8.5)"
                     value={previousCgpa}
@@ -330,3 +331,5 @@ export function ResultsDisplay() {
     </div>
   );
 }
+
+    

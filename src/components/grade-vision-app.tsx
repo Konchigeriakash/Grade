@@ -284,7 +284,8 @@ export function GradeVisionApp() {
                                 <FormLabel>CIE Marks</FormLabel>
                                 <FormControl>
                                     <Input
-                                    type="number"
+                                    type="text"
+                                    inputMode="decimal"
                                     placeholder="e.g., 42"
                                     {...field}
                                     />
@@ -301,7 +302,8 @@ export function GradeVisionApp() {
                                 <FormLabel>Credits</FormLabel>
                                 <FormControl>
                                     <Input
-                                    type="number"
+                                    type="text"
+                                    inputMode="decimal"
                                     step="0.5"
                                     placeholder="e.g., 4"
                                     {...field}
@@ -383,3 +385,5 @@ export function GradeVisionApp() {
     </div>
   );
 }
+
+    
