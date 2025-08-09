@@ -526,24 +526,24 @@ export function GradeVisionApp() {
                           {r.subjectName}
                         </TableCell>
                         <TableCell className="text-center">{r.cie}</TableCell>
-                        <TableCell
-                          className="text-center font-bold text-primary cursor-pointer hover:bg-muted/50 rounded-md"
-                          onClick={() =>
-                            setEditState({ subjectIndex: i, newGrade: r.grade })
-                          }
-                        >
-                          <div className="flex items-center justify-center gap-2">
-                            {r.grade}
-                            <Pencil className="h-3 w-3 opacity-50" />
-                          </div>
+                        <TableCell className="text-center font-bold text-primary">
+                          {r.grade}
                         </TableCell>
                         <TableCell className="text-center">
                           {r.requiredSeeMarks >= 0
                             ? r.requiredSeeMarks
                             : "N/A"}
                         </TableCell>
-                        <TableCell className="text-center">
-                          {r.gradePoint}
+                        <TableCell
+                          className="text-center font-bold text-primary cursor-pointer hover:bg-muted/50 rounded-md"
+                          onClick={() =>
+                            setEditState({ subjectIndex: i, newGrade: r.grade })
+                          }
+                        >
+                           <div className="flex items-center justify-center gap-2">
+                            {r.gradePoint}
+                            <Pencil className="h-3 w-3 opacity-50" />
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
