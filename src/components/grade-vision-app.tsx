@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm, useFieldArray, useFormContext } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import type { z } from "zod";
@@ -45,6 +45,7 @@ import {
   type SubjectResult,
   calculateSgpaSchema,
   type Subject,
+  subjectSchema,
 } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 
@@ -80,7 +81,7 @@ export function GradeVisionApp() {
     mode: "onChange",
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, update } = useFieldArray({
     control: form.control,
     name: "subjects",
   });
@@ -137,7 +138,8 @@ export function GradeVisionApp() {
   
     if (newResult) {
       setProcessedSubjects(prev => [...prev, newResult!]);
-      remove(subjectIndex);
+      update(subjectIndex, { name: "", cie: "" as any, credits: "" as any });
+      form.reset({ subjects: [{ name: "", cie: "" as any, credits: "" as any }]});
       setAssessmentState(null);
       setIsProcessing(false);
     } else if (gradeIndex >= GRADES.length) {
@@ -152,7 +154,8 @@ export function GradeVisionApp() {
         warning: "Lacks confidence for any passing grade. This subject is at risk.",
       };
       setProcessedSubjects(prev => [...prev, newResult!]);
-      remove(subjectIndex);
+      update(subjectIndex, { name: "", cie: "" as any, credits: "" as any });
+      form.reset({ subjects: [{ name: "", cie: "" as any, credits: "" as any }]});
       setAssessmentState(null);
       setIsProcessing(false);
     } else {
@@ -161,9 +164,14 @@ export function GradeVisionApp() {
     }
   };
   
-  const triggerConfidenceCheck = (subjectIndex: number) => {
+  const triggerConfidenceCheck = async (subjectIndex: number) => {
+    const isValid = await form.trigger(`subjects.${subjectIndex}`);
+    if (!isValid) {
+      return;
+    }
+
     const subjectData = form.getValues().subjects[subjectIndex];
-    const validationResult = calculateSgpaSchema.shape.subjects.element.safeParse(subjectData);
+    const validationResult = subjectSchema.safeParse(subjectData);
 
     if (validationResult.success) {
       setIsProcessing(true);
@@ -172,8 +180,6 @@ export function GradeVisionApp() {
         subjectIndex: subjectIndex,
         gradeIndex: 0,
       });
-    } else {
-      form.trigger(`subjects.${index}`);
     }
   };
 
@@ -194,6 +200,10 @@ export function GradeVisionApp() {
       handleConfidence(false);
     }
   }, [assessmentState]);
+
+  const removeProcessedSubject = (indexToRemove: number) => {
+    setProcessedSubjects(prev => prev.filter((_, i) => i !== indexToRemove));
+  }
 
 
   const renderAssessmentDialog = () => {
@@ -316,6 +326,7 @@ export function GradeVisionApp() {
                                     type="button"
                                     onClick={() => triggerConfidenceCheck(index)}
                                     className="w-full"
+                                    disabled={isProcessing}
                                 >
                                     Add 
                                     <ChevronRight />
@@ -323,15 +334,6 @@ export function GradeVisionApp() {
                             </div>
                         </div>
                     ))}
-                     <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => append({ name: '', cie: '' as any, credits: '' as any })}
-                        disabled={isProcessing || fields.length > 0}
-                        className="w-full"
-                     >
-                        <Plus /> Add New Subject
-                     </Button>
                     </div>
                 </CardContent>
             </Card>
@@ -358,11 +360,14 @@ export function GradeVisionApp() {
                             {processedSubjects.map((r, i) => (
                                 <li key={i} className="flex justify-between items-center py-3">
                                     <div className="font-medium">{r.subjectName}</div>
-                                    <div className="text-right">
+                                    <div className="flex items-center gap-4">
                                       <span className={`font-bold ${r.grade === 'F' ? 'text-destructive' : 'text-primary'}`}>
                                         Grade: {r.grade}
                                       </span>
-                                      <span className="text-sm text-muted-foreground ml-2">(GP: {r.gradePoint})</span>
+                                      <span className="text-sm text-muted-foreground">(GP: {r.gradePoint})</span>
+                                      <Button variant="ghost" size="icon" onClick={() => removeProcessedSubject(i)}>
+                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                      </Button>
                                     </div>
                                 </li>
                             ))}
@@ -386,3 +391,5 @@ export function GradeVisionApp() {
     </div>
   );
 }
+
+    
