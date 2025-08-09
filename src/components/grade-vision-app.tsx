@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useForm, useFieldArray, FormProvider } from "react-hook-form";
+import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import type { z } from "zod";
@@ -10,6 +10,7 @@ import {
   Plus,
   Trash2,
   Calculator,
+  ChevronRight,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ import {
   calculateSgpaSchema,
   type Subject,
 } from "@/lib/types";
+import { useToast } from "@/hooks/use-toast";
 
 const GRADES = [
   { name: "O", marks: 90, point: 10 },
@@ -59,14 +61,16 @@ const GRADES = [
 
 type AssessmentState = {
   subject: Subject;
+  subjectIndex: number;
   gradeIndex: number;
 };
 
 export function GradeVisionApp() {
   const router = useRouter();
+  const { toast } = useToast();
   const [assessmentState, setAssessmentState] = React.useState<AssessmentState | null>(null);
-  const [isCalculating, setIsCalculating] = React.useState(false);
-  const [results, setResults] = React.useState<SubjectResult[]>([]);
+  const [processedSubjects, setProcessedSubjects] = React.useState<SubjectResult[]>([]);
+  const [isProcessing, setIsProcessing] = React.useState(false);
 
   const form = useForm<z.infer<typeof calculateSgpaSchema>>({
     resolver: zodResolver(calculateSgpaSchema),
@@ -76,25 +80,33 @@ export function GradeVisionApp() {
     mode: "onChange",
   });
 
-  const { fields, append, remove, update } = useFieldArray({
+  const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: "subjects",
   });
 
-  const onSubmit = (data: z.infer<typeof calculateSgpaSchema>) => {
-    // Navigate to results page with all results
-    const totalGradePoints = results.reduce(
+  const onSubmit = () => {
+    if (processedSubjects.length === 0) {
+      toast({
+        title: "No subjects added",
+        description: "Please add and process at least one subject.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    const totalGradePoints = processedSubjects.reduce(
       (sum, s) => sum + s.gradePoint * s.credits,
       0
     );
-    const totalCredits = results.reduce(
+    const totalCredits = processedSubjects.reduce(
       (sum, s) => sum + s.credits,
       0
     );
     const sgpa = totalCredits > 0 ? totalGradePoints / totalCredits : 0;
     
     const finalResult: CalculationResult = {
-      results: results,
+      results: processedSubjects,
       sgpa: parseFloat(sgpa.toFixed(2)),
     };
 
@@ -105,7 +117,7 @@ export function GradeVisionApp() {
   const handleConfidence = (isConfident: boolean) => {
     if (!assessmentState) return;
   
-    let { subject, gradeIndex } = { ...assessmentState };
+    let { subject, subjectIndex, gradeIndex } = { ...assessmentState };
     let newResult: SubjectResult | null = null;
   
     if (isConfident) {
@@ -119,25 +131,17 @@ export function GradeVisionApp() {
         credits: subject.credits,
         cie: subject.cie,
       };
-      
-      // Find the subject in the form array and mark it as processed
-      const subjectIndex = fields.findIndex(f => f.name === subject.name && f.cie === subject.cie && f.credits === subject.credits);
-      if(subjectIndex !== -1) {
-        // Here you might want to store the result with the subject or handle it differently
-        // For now, let's just remove it from the form array so it's not processed again
-        remove(subjectIndex);
-        append({ name: "", cie: "" as any, credits: "" as any });
-      }
-
     } else {
-      gradeIndex++; // Try next lower grade for same subject
+      gradeIndex++;
     }
   
     if (newResult) {
-      setResults(prev => [...prev, newResult!]);
+      setProcessedSubjects(prev => [...prev, newResult!]);
+      remove(subjectIndex);
       setAssessmentState(null);
+      setIsProcessing(false);
     } else if (gradeIndex >= GRADES.length) {
-      // Failed to find a confident grade
+      // Failed to find a confident grade, mark as failed.
       newResult = {
         subjectName: subject.name,
         grade: "F",
@@ -147,18 +151,13 @@ export function GradeVisionApp() {
         cie: subject.cie,
         warning: "Lacks confidence for any passing grade. This subject is at risk.",
       };
-      setResults(prev => [...prev, newResult!]);
-      
-      const subjectIndex = fields.findIndex(f => f.name === subject.name && f.cie === subject.cie && f.credits === subject.credits);
-      if(subjectIndex !== -1) {
-        remove(subjectIndex);
-        append({ name: "", cie: "" as any, credits: "" as any });
-      }
-
+      setProcessedSubjects(prev => [...prev, newResult!]);
+      remove(subjectIndex);
       setAssessmentState(null);
+      setIsProcessing(false);
     } else {
       // Continue with the next grade
-      setAssessmentState({ subject, gradeIndex });
+      setAssessmentState({ subject, subjectIndex, gradeIndex });
     }
   };
   
@@ -167,13 +166,14 @@ export function GradeVisionApp() {
     const validationResult = calculateSgpaSchema.shape.subjects.element.safeParse(subjectData);
 
     if (validationResult.success) {
+      setIsProcessing(true);
       setAssessmentState({
         subject: validationResult.data,
+        subjectIndex: subjectIndex,
         gradeIndex: 0,
       });
     } else {
-      // Trigger validation to show errors
-      form.trigger(`subjects.${subjectIndex}`);
+      form.trigger(`subjects.${index}`);
     }
   };
 
@@ -213,7 +213,7 @@ export function GradeVisionApp() {
     const isFiftyMarkPaper = subject.credits === 1 || subject.credits === 2;
 
     return (
-      <AlertDialog open={true} onOpenChange={() => assessmentState && !isCalculating ? setAssessmentState(null) : null}>
+      <AlertDialog open={true} onOpenChange={() => !isProcessing ? setAssessmentState(null) : null}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -225,7 +225,7 @@ export function GradeVisionApp() {
               {isFiftyMarkPaper && (
                 <>
                   {" "}
-                  (i.e., <strong>~{(requiredSeeMarks / 2).toFixed(1)}</strong>{" "}
+                  (i.e., <strong>~{(requiredSeeMarks / 2.0).toFixed(1)}</strong>{" "}
                   out of 50)
                 </>
               )}
@@ -248,7 +248,6 @@ export function GradeVisionApp() {
   return (
     <div className="max-w-4xl mx-auto space-y-8">
        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
             <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -256,134 +255,134 @@ export function GradeVisionApp() {
                     Enter Subjects
                   </CardTitle>
                   <CardDescription>
-                    Add all your subjects and their CIE marks below. After adding a subject, a confidence check will run.
+                    Add your subjects one by one. A confidence check will run for each.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="space-y-6">
+                    <div className="space-y-4">
                     {fields.map((field, index) => (
-                        <div key={field.id} className="grid grid-cols-1 md:grid-cols-9 gap-4 items-start p-4 border rounded-lg relative">
+                        <div key={field.id} className="grid grid-cols-1 md:grid-cols-9 gap-4 items-start p-4 border rounded-lg">
                             <FormField
-                            control={form.control}
-                            name={`subjects.${index}.name`}
-                            render={({ field }) => (
-                                <FormItem className="md:col-span-3">
-                                <FormLabel>Subject Name</FormLabel>
-                                <FormControl>
-                                    <Input placeholder="e.g., Mathematics" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                                </FormItem>
-                            )}
+                                control={form.control}
+                                name={`subjects.${index}.name`}
+                                render={({ field }) => (
+                                    <FormItem className="md:col-span-3">
+                                    <FormLabel>Subject Name</FormLabel>
+                                    <FormControl>
+                                        <Input placeholder="e.g., Mathematics" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                    </FormItem>
+                                )}
                             />
                             <FormField
-                            control={form.control}
-                            name={`subjects.${index}.cie`}
-                            render={({ field }) => (
-                                <FormItem className="md:col-span-2">
-                                <FormLabel>CIE Marks</FormLabel>
-                                <FormControl>
-                                    <Input
-                                    type="text"
-                                    inputMode="decimal"
-                                    placeholder="e.g., 42"
-                                    {...field}
-                                    />
-                                </FormControl>
-                                <FormMessage />
-                                </FormItem>
-                            )}
+                                control={form.control}
+                                name={`subjects.${index}.cie`}
+                                render={({ field }) => (
+                                    <FormItem className="md:col-span-2">
+                                    <FormLabel>CIE Marks</FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            type="text"
+                                            inputMode="decimal"
+                                            placeholder="e.g., 42"
+                                            {...field}
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                    </FormItem>
+                                )}
                             />
                             <FormField
-                            control={form.control}
-                            name={`subjects.${index}.credits`}
-                            render={({ field }) => (
-                                <FormItem className="md:col-span-2">
-                                <FormLabel>Credits</FormLabel>
-                                <FormControl>
-                                    <Input
-                                    type="text"
-                                    inputMode="decimal"
-                                    step="0.5"
-                                    placeholder="e.g., 4"
-                                    {...field}
-                                    />
-                                </FormControl>
-                                <FormMessage />
-                                </FormItem>
-                            )}
+                                control={form.control}
+                                name={`subjects.${index}.credits`}
+                                render={({ field }) => (
+                                    <FormItem className="md:col-span-2">
+                                    <FormLabel>Credits</FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            type="text"
+                                            inputMode="decimal"
+                                            placeholder="e.g., 4"
+                                            {...field}
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                    </FormItem>
+                                )}
                             />
-                            <div className="md:col-span-2 flex items-end justify-end h-full space-x-2">
+                            <div className="md:col-span-2 flex items-end h-full">
                                 <Button
                                     type="button"
                                     onClick={() => triggerConfidenceCheck(index)}
                                     className="w-full"
                                 >
-                                    <Plus className="mr-2" />
                                     Add 
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => remove(index)}
-                                    className="text-destructive hover:bg-destructive/10"
-                                    aria-label="Remove Subject"
-                                    disabled={fields.length <= 1}
-                                >
-                                    <Trash2 className="h-5 w-5" />
+                                    <ChevronRight />
                                 </Button>
                             </div>
                         </div>
                     ))}
+                     <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => append({ name: '', cie: '' as any, credits: '' as any })}
+                        disabled={isProcessing || fields.length > 0}
+                        className="w-full"
+                     >
+                        <Plus /> Add New Subject
+                     </Button>
                     </div>
                 </CardContent>
             </Card>
 
             {renderAssessmentDialog()}
 
-            {assessmentState !== null && (
+            {isProcessing && (
                 <div className="flex flex-col items-center justify-center text-center p-8 bg-card rounded-lg shadow-md">
                 <Spinner className="h-8 w-8 text-primary mb-4" />
                 <p className="text-lg font-semibold">Assessing your confidence...</p>
                 <p className="text-muted-foreground">
-                    Please answer the pop-up questions.
+                    Please answer the pop-up question.
                 </p>
                 </div>
             )}
 
-            {results.length > 0 && (
+            {processedSubjects.length > 0 && (
                 <Card>
                     <CardHeader>
-                        <CardTitle>Current Results</CardTitle>
+                        <CardTitle>Processed Subjects</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <ul>
-                            {results.map((r, i) => (
-                                <li key={i} className="flex justify-between items-center p-2 border-b">
-                                    <span>{r.subjectName}</span>
-                                    <span>Grade: {r.grade} (GP: {r.gradePoint})</span>
+                        <ul className="divide-y divide-border">
+                            {processedSubjects.map((r, i) => (
+                                <li key={i} className="flex justify-between items-center py-3">
+                                    <div className="font-medium">{r.subjectName}</div>
+                                    <div className="text-right">
+                                      <span className={`font-bold ${r.grade === 'F' ? 'text-destructive' : 'text-primary'}`}>
+                                        Grade: {r.grade}
+                                      </span>
+                                      <span className="text-sm text-muted-foreground ml-2">(GP: {r.gradePoint})</span>
+                                    </div>
                                 </li>
                             ))}
                         </ul>
                     </CardContent>
                 </Card>
             )}
-
+            
             <div className="flex justify-end pt-4">
                 <Button
-                    type="submit"
+                    type="button"
                     size="lg"
-                    disabled={assessmentState !== null || results.length === 0}
+                    onClick={onSubmit}
+                    disabled={isProcessing || processedSubjects.length === 0}
                 >
                     <Calculator className="mr-2 h-5 w-5" />
                     Calculate Final SGPA
                 </Button>
             </div>
-          </form>
     </Form>
     </div>
   );
 }
-
-    
