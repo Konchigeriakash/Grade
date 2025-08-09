@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Plus,
   Trash2,
+  Pencil,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,22 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   type CalculationResult,
   type SubjectResult,
   calculateCgpaSchema,
@@ -66,6 +83,7 @@ const GRADES = [
   { name: "B", marks: 50, point: 6 },
   { name: "C", marks: 45, point: 5 },
   { name: "P", marks: 40, point: 4 },
+  { name: "F", marks: 0, point: 0 },
 ];
 
 type AssessmentState = {
@@ -75,6 +93,11 @@ type AssessmentState = {
   results: SubjectResult[];
 };
 
+type EditState = {
+  subjectIndex: number;
+  newGrade: string;
+};
+
 export function GradeVisionApp() {
   const [isPending, startTransition] = React.useTransition();
   const [finalResult, setFinalResult] = React.useState<CalculationResult | null>(
@@ -82,6 +105,7 @@ export function GradeVisionApp() {
   );
   const [assessmentState, setAssessmentState] =
     React.useState<AssessmentState | null>(null);
+  const [editState, setEditState] = React.useState<EditState | null>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -176,23 +200,22 @@ export function GradeVisionApp() {
       setAssessmentState({ subjects, subjectIndex, gradeIndex, results });
     }
   };
-  
+
   React.useEffect(() => {
     if (!assessmentState) return;
-  
+
     const { subjects, subjectIndex, gradeIndex } = assessmentState;
     if (subjectIndex >= subjects.length || gradeIndex >= GRADES.length) return;
-  
+
     const subject = subjects[subjectIndex];
     const grade = GRADES[gradeIndex];
     const requiredSeeMarks = 2 * (grade.marks - subject.cie);
-  
+
     if (requiredSeeMarks > 100 || requiredSeeMarks < 0) {
       // Automatically advance if grade is impossible
       handleConfidence(false);
     }
   }, [assessmentState]);
-
 
   const addSubject = () => {
     append({
@@ -206,12 +229,36 @@ export function GradeVisionApp() {
     remove(index);
   };
 
+  const handleEditGrade = () => {
+    if (!editState || !finalResult) return;
+
+    const newResults = [...finalResult.results];
+    const subjectToUpdate = newResults[editState.subjectIndex];
+    const newGradeInfo = GRADES.find((g) => g.name === editState.newGrade);
+
+    if (subjectToUpdate && newGradeInfo) {
+      subjectToUpdate.grade = newGradeInfo.name;
+      subjectToUpdate.gradePoint = newGradeInfo.point;
+      // Since this is a manual override, SEE marks might not be relevant
+      subjectToUpdate.requiredSeeMarks = -1; 
+      // Clear warning if a passing grade is now selected
+      if (newGradeInfo.point > 0) {
+        delete subjectToUpdate.warning;
+      } else {
+        subjectToUpdate.warning = 'Subject failed due to manual grade edit.'
+      }
+    }
+    
+    // Recalculate CGPA with updated results
+    calculateFinalCgpa(newResults);
+    setEditState(null);
+  };
+
   const renderAssessmentDialog = () => {
     if (!assessmentState) return null;
 
     const { subjects, subjectIndex, gradeIndex } = assessmentState;
 
-    // This check ensures we don't try to render after finishing
     if (subjectIndex >= subjects.length) {
       return null;
     }
@@ -219,8 +266,7 @@ export function GradeVisionApp() {
     const subject = subjects[subjectIndex];
     const grade = GRADES[gradeIndex];
     const requiredSeeMarks = 2 * (grade.marks - subject.cie);
-    
-    // This check ensures we don't render dialog for impossible grades
+
     if (requiredSeeMarks > 100 || requiredSeeMarks < 0) {
       return null;
     }
@@ -240,7 +286,8 @@ export function GradeVisionApp() {
               {isFiftyMarkPaper && (
                 <>
                   {" "}
-                  (i.e., <strong>~{(requiredSeeMarks / 2).toFixed(1)}</strong> out of 50)
+                  (i.e., <strong>~{(requiredSeeMarks / 2).toFixed(1)}</strong>{" "}
+                  out of 50)
                 </>
               )}
               .
@@ -256,6 +303,50 @@ export function GradeVisionApp() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    );
+  };
+
+  const renderEditGradeDialog = () => {
+    if (!editState || !finalResult) return null;
+
+    const subject = finalResult.results[editState.subjectIndex];
+
+    return (
+      <Dialog open={!!editState} onOpenChange={() => setEditState(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Grade for {subject.subjectName}</DialogTitle>
+            <DialogDescription>
+              Select a new grade. The CGPA will be recalculated.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Select
+              defaultValue={editState.newGrade}
+              onValueChange={(value) =>
+                setEditState({ ...editState, newGrade: value })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a grade" />
+              </SelectTrigger>
+              <SelectContent>
+                {GRADES.map((g) => (
+                  <SelectItem key={g.name} value={g.name}>
+                    {g.name} (GP: {g.point})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button onClick={handleEditGrade}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     );
   };
 
@@ -365,6 +456,8 @@ export function GradeVisionApp() {
       )}
 
       {renderAssessmentDialog()}
+      {renderEditGradeDialog()}
+
 
       {(isPending || assessmentState) && !finalResult && (
         <div className="flex flex-col items-center justify-center text-center p-8 bg-card rounded-lg shadow-md">
@@ -384,7 +477,7 @@ export function GradeVisionApp() {
               ✅ Estimated CGPA
             </CardTitle>
             <CardDescription>
-              Based on your input and confidence assessment.
+              Based on your input and confidence. Click a grade to edit.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -402,9 +495,8 @@ export function GradeVisionApp() {
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>📉 Subjects at Risk</AlertTitle>
                 <AlertDescription>
-                  One or more subjects were marked as 'at risk' because you were
-                  not confident of achieving a passing grade. They have been
-                  excluded from the CGPA calculation.
+                  One or more subjects were marked as 'at risk' or failed. They have
+                  been excluded from the CGPA calculation if their grade point is 0.
                 </AlertDescription>
               </Alert>
             )}
@@ -434,8 +526,16 @@ export function GradeVisionApp() {
                           {r.subjectName}
                         </TableCell>
                         <TableCell className="text-center">{r.cie}</TableCell>
-                        <TableCell className="text-center font-bold text-primary">
-                          {r.grade}
+                        <TableCell
+                          className="text-center font-bold text-primary cursor-pointer hover:bg-muted/50 rounded-md"
+                          onClick={() =>
+                            setEditState({ subjectIndex: i, newGrade: r.grade })
+                          }
+                        >
+                          <div className="flex items-center justify-center gap-2">
+                            {r.grade}
+                            <Pencil className="h-3 w-3 opacity-50" />
+                          </div>
                         </TableCell>
                         <TableCell className="text-center">
                           {r.requiredSeeMarks >= 0
@@ -452,7 +552,14 @@ export function GradeVisionApp() {
               </div>
             </div>
             <div className="flex justify-center">
-               <Button onClick={() => { setFinalResult(null); form.reset() }}>Start Over</Button>
+              <Button
+                onClick={() => {
+                  setFinalResult(null);
+                  form.reset();
+                }}
+              >
+                Start Over
+              </Button>
             </div>
           </CardContent>
         </Card>
