@@ -11,8 +11,9 @@ export const subjectSchema = z.object({
     .min(0.5, "Credits must be at least 0.5.")
     .max(10, "Credits cannot exceed 10."),
 });
+export type Subject = z.infer<typeof subjectSchema>;
 
-// This schema is no longer used for the main form, but kept for reference or future use.
+
 export const calculateSgpaSchema = z.object({
   subjects: z.array(subjectSchema).min(1, "Please add at least one subject."),
 });
@@ -29,5 +30,5 @@ export type SubjectResult = {
 
 export type CalculationResult = {
   results: SubjectResult[];
-  cgpa: number; // Internally this is the SGPA
+  sgpa: number; 
 };

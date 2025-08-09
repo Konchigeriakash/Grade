@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/toaster"
 
 export const metadata: Metadata = {
   title: 'GradeVision: SGPA Estimator',
-  description: 'An SGPA Estimator tool for students to realistically assess their academic standing.',
+  description: 'An SGPA Estimator tool for VTU students to realistically assess their academic standing.',
 };
 
 export default function RootLayout({
