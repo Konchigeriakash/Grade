@@ -123,7 +123,7 @@ export function GradeVisionApp() {
   
     if (isConfident) {
       const grade = GRADES[gradeIndex];
-      const requiredSeeMarks = 2 * (grade.marks - subject.cie);
+      const requiredSeeMarks = (2 * (grade.marks - subject.cie))-1;
       newResult = {
         subjectName: subject.name,
         grade: grade.name,
